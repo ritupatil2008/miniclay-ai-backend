@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoom Bot Joiner</title>
+  <!-- CORRECT SDK -->
+  <script src="https://source.zoom.us/videosdk/2.22.5/lib/zoom-video-sdk.umd.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .popup {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      width: 320px;
+      text-align: center;
+    }
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      border: 1px solid #cbd5e0;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 12px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    button:disabled { background: #a0aec0; cursor: not-allowed; }
+    #status { margin-top: 15px; font-size: 14px; min-height: 20px; }
+    .error { color: #e53e3e; }
+    .success { color: #38a169; }
+  </style>
+</head>
+<body>
+  <div class="popup">
+    <h2>Zoom Bot Joiner</h2>
+    <input type="text" id="meetingId" placeholder="Meeting ID">
+    <input type="text" id="password" placeholder="Password (optional)">
+    <input type="text" id="joinLink" placeholder="Or paste Zoom link">
+    <button id="joinBtn" onclick="joinMeeting()">Join Meeting</button>
+    <div id="status">Enter details and click Join.</div>
+  </div>
+
+  <script>
+    let client = null;
+
+    function extractMeetingId(link) {
+      const match = link.match(/zoom\.us\/j\/(\d+)/) || link.match(/(\d{10,})/);
+      return match ? match[1] : null;
+    }
+
+    async function joinMeeting() {
+      let meetingId = document.getElementById('meetingId').value.trim();
+      const password = document.getElementById('password').value;
+      const joinLink = document.getElementById('joinLink').value.trim();
+      const status = document.getElementById('status');
+      const btn = document.getElementById('joinBtn');
+
+      if (joinLink) {
+        const id = extractMeetingId(joinLink);
+        if (!id) { status.textContent = 'Invalid link'; status.className = 'error'; return; }
+        meetingId = id;
+      }
+      if (!meetingId) { status.textContent = 'Enter ID or link'; status.className = 'error'; return; }
+
+      status.textContent = 'Generating token...'; btn.disabled = true;
+
+      try {
+        const res = await fetch('/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ meetingId, password: password || '' })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        status.textContent = 'Joining...';
+        client = ZoomVideo.createClient();
+        await client.init('en-US', 'Global');
+
+        await client.join({
+          sdkKey: data.sdkKey,
+          signature: data.signature,
+          meetingNumber: meetingId,
+          password: data.password,
+          userName: 'Rohan - Sales Exec'
+        });
+
+        status.textContent = 'Joined! Rohan is in the meeting.';
+        status.className = 'success';
+        
+        // Make Rohan speak
+        await speakGreeting();
+        
+        btn.textContent = 'Leave';
+        btn.onclick = () => client.leave().then(() => location.reload());
+
+      } catch (err) {
+        status.textContent = 'Failed: ' + err.message;
+        status.className = 'error';
+        btn.disabled = false;
+        btn.textContent = 'Join Meeting';
+      }
+    }
+
+    // Voice greeting function using Web Speech API
+    async function speakGreeting() {
+      try {
+        const stream = client.getMediaStream();
+        
+        // Enable microphone for Zoom
+        await stream.startAudio();
+        
+        // Wait a moment for audio to initialize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Use Web Speech API (browser TTS)
+        if ('speechSynthesis' in window) {
+          const message = "Hi, I'm Rohan from Miniclay AI. Great to be here!";
+          const utterance = new SpeechSynthesisUtterance(message);
+          
+          // Configure voice settings
+          utterance.rate = 0.9;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+          
+          // Set a good voice if available
+          const voices = speechSynthesis.getVoices();
+          const preferredVoice = voices.find(v => 
+            v.name.includes('Google') || 
+            v.name.includes('Samantha') || 
+            v.name.includes('Alex') ||
+            v.lang.startsWith('en')
+          );
+          if (preferredVoice) utterance.voice = preferredVoice;
+          
+          // Speak - audio will be picked up by microphone and sent to Zoom
+          speechSynthesis.speak(utterance);
+          
+          utterance.onend = () => {
+            console.log('✅ Rohan said: "Hi, I\'m Rohan from Miniclay AI. Great to be here!"');
+          };
+          
+          utterance.onerror = (e) => {
+            console.error('Speech error:', e);
+          };
+        } else {
+          console.warn('SpeechSynthesis not supported - Rohan cannot speak');
+        }
+      } catch (err) {
+        console.error('Voice error:', err);
+      }
+    }
+
+    document.addEventListener('keypress', e => e.key === 'Enter' && joinMeeting());
+  </script>
+</body>
+</html>
